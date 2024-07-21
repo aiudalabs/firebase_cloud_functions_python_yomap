@@ -360,3 +360,39 @@ def _get_historical_messages(room_id):
         history.append(history_model[i])
 
     return history
+
+
+@firestore_fn.on_document_created(
+    document="audio_to_text/{documentId}", secrets=["firestore-genai-chatbot-API_KEY"]
+)
+def audio_to_text(
+    event: firestore_fn.Event[firestore_fn.DocumentSnapshot | None],
+) -> None:
+    """Listens for new documents to be added to /audio_to_text, convert the audio to text first and
+    translate the text to the language specified in language."""
+
+    language = event.data.get("language")
+
+    GOOGLE_API_KEY = os.environ.get("firestore-genai-chatbot-API_KEY")
+    genai.configure(api_key=GOOGLE_API_KEY)
+    model = GenerativeModel(model_name="gemini-1.5-flash-001")
+
+    prompt = """
+        Can you transcribe this audio.
+    """
+
+    audio_file_uri = event.data.get("audio_path")
+    audio_file = Part.from_uri(audio_file_uri, mime_type="audio/mpeg")
+
+    contents = [audio_file, prompt]
+
+    response = model.generate_content(contents)
+
+    response = model.generate_content(
+        "Translate the following text: "
+        + response.text
+        + " to the language "
+        + language
+    )
+
+    event.data.reference.update({"translation": response.text})
